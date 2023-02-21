@@ -1,17 +1,17 @@
 import pandas as pd
 
 
-
 #  dataframe before output to html
 def summarize_result(index_count, total, top=5, down=5, max_show=10):
     # index_count: pd.DataFrame(columns=['any'], index='any')
     sep = '\n'
     bias = 2
-    p = '{index:%s}: {cnt:<%s} ({pct}' % (
+    p = '{index:%s}: {cnt:<%s}' % (
         index_count.index.map(lambda d: len(str(d))).max() + bias,
         len(str(index_count.max())) + bias
-    ) + '%)'
-    tmp1 = [p.format(index=str(row[0]), cnt=row[1], pct=round(row[1]*100/total, 1))
+    )
+    p += '({pct}%)' if total > 0 else '{pct}'
+    tmp1 = [p.format(index=str(row[0]), cnt=row[1], pct=round(row[1]*100/total, 1) if total > 0 else '')
             for row in index_count.reset_index(name='value').values]
     if len(index_count) <= max_show:
         tmp1 = sep.join(tmp1)
@@ -40,7 +40,7 @@ def analyze_values_distributtion(df, colname):
     return [tmp_index, tmp_value]
 
 
-def analyze_datetime_customized(df, colname):
+def analyze_datetime(df, colname):
     df['tmp'] = df[colname].dt.strftime('%Y').str[:3] + '?'
     df.loc[df[colname] < '1930-01-01', 'tmp'] = '19??'
     df.loc[df[colname] > '2030-01-01', 'tmp'] = '20??'
@@ -52,10 +52,14 @@ def analyze_datetime_customized(df, colname):
     return tmp_index
 
 
+def analyze_float(df, colname):
+    return summarize_result(df[colname].describe().round(2), 0)
+
+
 def analyze_columns(df, **kwargs):
     len_distribution = kwargs.get('len_distribution', df.columns)
     value_distribution = kwargs.get('value_distribution', df.columns)
-    datetime_distribution = kwargs.get('datetime_distribution', df.select_dtypes('datetime').columns)
+    customized_distribution = kwargs.get('customized_distribution', {})
 
     s = df.dtypes.astype('string')
     s = pd.DataFrame(s, columns=['analyze_dtype'])
@@ -72,8 +76,8 @@ def analyze_columns(df, **kwargs):
         s.loc[c, 'value_distribution(index)'] = res[0]
         s.loc[c, 'value_distribution(value)'] = res[1]
 
-    for c in datetime_distribution:
-        s.loc[c, 'datetime_distribution'] = analyze_datetime_customized(df, c)
+    for c, func in customized_distribution.items():
+        s.loc[c, 'customized_distribution'] = func(df, c)
 
     s['null'] = s['null'] .map(lambda d: ('{index} ({pct}%)').format(index=d, pct=round(d*100/len(df))))
     s['unique'] = s['unique'].map(lambda d: ('{index} ({pct}%)').format(index=d, pct=round(d*100/len(df))))
@@ -92,12 +96,24 @@ def output_html(df, file):
 
 
 if __name__ == "__main__":
+    # read data
     data_source = './a2cef438-fd90-4974-8ef8-1db8babd7e37.csv'
     df = pd.read_csv(data_source, dtype=str)
+
+    # transfer here
     df['regist_date'] = pd.to_datetime(df['regist_date'], errors='coerce')
     df = df.astype({'cnts_of_main': int, 'total_prem': 'float'})
 
-    summary = analyze_columns(df)
+    # analyze
+    summary = analyze_columns(df,
+                              len_distribution=df.columns,
+                              value_distribution=[],
+                              customized_distribution={
+                                  'regist_date': analyze_datetime,
+                                  'total_prem': analyze_float
+                              })
+
+    # output
     output_file = './test2.html'
     output_html(summary, output_file)
 
